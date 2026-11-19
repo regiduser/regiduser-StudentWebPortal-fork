@@ -1,0 +1,101 @@
+@StudentWebPortal_HostAddress = https://localhost:7197
+@StudentId = 1
+@AttendanceId = 1
+
+
+### List students (paging/search)
+GET {{StudentWebPortal_HostAddress}}/api/Students?page=1&pageSize=20
+Accept: application/json
+
+
+### Create student
+POST {{StudentWebPortal_HostAddress}}/api/Students
+Content-Type: application/json
+
+{
+  "studentName": "Sample Student",
+  "email": "sample.student@example.com",
+  "phoneNumber": "+919876543210",
+  "enrollmentDate": "2026-11-19",
+  "notes": "Created for API smoke testing"
+}
+
+
+### Get student by ID
+GET {{StudentWebPortal_HostAddress}}/api/Students/{{StudentId}}
+Accept: application/json
+
+
+### Patch student (RFC 6902 JSON Patch)
+PATCH {{StudentWebPortal_HostAddress}}/api/Students/{{StudentId}}
+Content-Type: application/json-patch+json
+
+[
+  { "op": "replace", "path": "/Notes", "value": "Updated via PATCH" }
+]
+
+
+### List attendance records for student
+GET {{StudentWebPortal_HostAddress}}/api/Attendance/student/{{StudentId}}
+Accept: application/json
+
+
+### Get attendance by record ID
+GET {{StudentWebPortal_HostAddress}}/api/Attendance/{{AttendanceId}}
+Accept: application/json
+
+
+### Filter Hifz sessions
+GET {{StudentWebPortal_HostAddress}}/api/HifzSession?studentId={{StudentId}}&fromDate=2026-01-01&toDate=2026-12-31
+Accept: application/json
+
+
+### Filter revision sessions
+GET {{StudentWebPortal_HostAddress}}/api/RevisionSession?studentId={{StudentId}}&fromDate=2026-01-01&toDate=2026-12-31
+Accept: application/json
+
+### Create Hifz session
+POST {{StudentWebPortal_HostAddress}}/api/HifzSession
+Content-Type: application/json
+
+{
+  "studentId": {{StudentId}},
+  "sessionDate": "2026-11-19",
+  "surah": 1,
+  "verseStart": 1,
+  "status": 0,
+  "rank": 0,
+  "durationMinutes": 20,
+  "notes": "Sample Hifz session",
+  "recordedBy": 0
+}
+
+
+### Create revision session
+POST {{StudentWebPortal_HostAddress}}/api/RevisionSession
+Content-Type: application/json
+
+{
+  "studentId": {{StudentId}},
+  "sessionDate": "2026-11-19",
+  "surah": 1,
+  "verseStart": 1,
+  "verseEnd": 5,
+  "status": 0,
+  "rank": 0,
+  "durationMinutes": 15,
+  "notes": "Sample revision session",
+  "recordedBy": 0
+}
+
+
+### Create attendance
+POST {{StudentWebPortal_HostAddress}}/api/Attendance
+Content-Type: application/json
+
+{
+  "studentId": {{StudentId}},
+  "sessionStatus": 0,
+  "notes": "Sample attendance record",
+  "recordedBy": 0
+}
