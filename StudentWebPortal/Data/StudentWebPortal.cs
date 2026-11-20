@@ -1,3 +1,4 @@
+
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using StudentWebPortal.Model.Entity;
@@ -23,15 +24,30 @@ public sealed class StudentWebPortalContext(DbContextOptions<StudentWebPortalCon
         modelBuilder.Entity<Attendance>(entity =>
         {
             entity.HasIndex(a => new { a.StudentId, a.AttendanceDate }).IsUnique();
-            entity.HasOne(a => a.Student).WithMany().HasForeignKey(a => a.StudentId).OnDelete(DeleteBehavior.Restrict);
-            entity.Property(a => a.SessionStatus).HasConversion<string>().HasMaxLength(20);
-            entity.Property(a => a.RowVersion).IsConcurrencyToken().ValueGeneratedNever();
+            entity.HasOne(a => a.Student)
+                .WithMany()
+                .HasForeignKey(a => a.StudentId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.Property(a => a.SessionStatus)
+                .HasConversion<string>()
+                .HasMaxLength(20);
+
+            entity.Property(a => a.RowVersion)
+                .IsConcurrencyToken()
+                .ValueGeneratedNever();
         });
 
-        modelBuilder.Entity<HifzSession>().Property(s => s.RowVersion).IsConcurrencyToken().ValueGeneratedNever();
-        modelBuilder.Entity<RevisionSession>().Property(s => s.RowVersion).IsConcurrencyToken().ValueGeneratedNever();
-    }
+        modelBuilder.Entity<HifzSession>()
+            .Property(s => s.RowVersion)
+            .IsConcurrencyToken()
+            .ValueGeneratedNever();
 
+        modelBuilder.Entity<RevisionSession>()
+            .Property(s => s.RowVersion)
+            .IsConcurrencyToken()
+            .ValueGeneratedNever();
+    }
 
     public override int SaveChanges()
     {
@@ -48,32 +64,56 @@ public sealed class StudentWebPortalContext(DbContextOptions<StudentWebPortalCon
     private void ApplyAuditFields()
     {
         var now = DateTime.UtcNow;
-        ApplyAudit(Entries<Student>(), (entity, state) =>
+
+        ApplyAudit(ChangeTracker.Entries<Student>(), (entity, state) =>
         {
-            if (state == EntityState.Added) entity.CreatedAt = now;
-            if (state == EntityState.Modified) entity.UpdatedAt = now;
+            if (state == EntityState.Added)
+                entity.CreatedAt = now;
+
+            if (state == EntityState.Modified)
+                entity.UpdatedAt = now;
         });
-        ApplyAudit(Entries<Attendance>(), (entity, state) =>
+
+        ApplyAudit(ChangeTracker.Entries<Attendance>(), (entity, state) =>
         {
-            if (state == EntityState.Added) entity.CreatedAt = now;
-            if (state == EntityState.Modified) entity.UpdatedAt = now;
-            if (state is EntityState.Added or EntityState.Modified) entity.RowVersion = Guid.NewGuid().ToByteArray();
+            if (state == EntityState.Added)
+                entity.CreatedAt = now;
+
+            if (state == EntityState.Modified)
+                entity.UpdatedAt = now;
+
+            if (state is EntityState.Added or EntityState.Modified)
+                entity.RowVersion = Guid.NewGuid().ToByteArray();
         });
-        ApplyAudit(Entries<HifzSession>(), (entity, state) =>
+
+        ApplyAudit(ChangeTracker.Entries<HifzSession>(), (entity, state) =>
         {
-            if (state == EntityState.Added) entity.CreatedAt = now;
-            if (state is EntityState.Added or EntityState.Modified) entity.UpdatedAt = now;
-            if (state is EntityState.Added or EntityState.Modified) entity.RowVersion = Guid.NewGuid().ToByteArray();
+            if (state == EntityState.Added)
+                entity.CreatedAt = now;
+
+            if (state is EntityState.Added or EntityState.Modified)
+                entity.UpdatedAt = now;
+
+            if (state is EntityState.Added or EntityState.Modified)
+                entity.RowVersion = Guid.NewGuid().ToByteArray();
         });
-        ApplyAudit(Entries<RevisionSession>(), (entity, state) =>
+
+        ApplyAudit(ChangeTracker.Entries<RevisionSession>(), (entity, state) =>
         {
-            if (state == EntityState.Added) entity.CreatedAt = now;
-            if (state is EntityState.Added or EntityState.Modified) entity.UpdatedAt = now;
-            if (state is EntityState.Added or EntityState.Modified) entity.RowVersion = Guid.NewGuid().ToByteArray();
+            if (state == EntityState.Added)
+                entity.CreatedAt = now;
+
+            if (state is EntityState.Added or EntityState.Modified)
+                entity.UpdatedAt = now;
+
+            if (state is EntityState.Added or EntityState.Modified)
+                entity.RowVersion = Guid.NewGuid().ToByteArray();
         });
     }
 
-    private static void ApplyAudit<TEntity>(IEnumerable<EntityEntry<TEntity>> entries, Action<TEntity, EntityState> action)
+    private static void ApplyAudit<TEntity>(
+        IEnumerable<EntityEntry<TEntity>> entries,
+        Action<TEntity, EntityState> action)
         where TEntity : class
     {
         foreach (var entry in entries)
