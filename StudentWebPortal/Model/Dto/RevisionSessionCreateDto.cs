@@ -1,17 +1,12 @@
-﻿using StudentWebPortal.Model.Entity;
 using StudentWebPortal.Model.Entity.Enum;
 using System.ComponentModel.DataAnnotations;
-using System.ComponentModel.DataAnnotations.Schema;
 
 namespace StudentWebPortal.Model.Dto
 {
     public class RevisionSessionCreateDto
     {
-        [Required]
+        [Range(1, int.MaxValue, ErrorMessage = "StudentId must be a positive integer.")]
         public int StudentId { get; set; }
-
-        [ForeignKey(nameof(StudentId))]
-        public Student? Student { get; set; }
 
         [DataType(DataType.Date)]
         [DisplayFormat(DataFormatString = "{0:yyyy-MM-dd}", ApplyFormatInEditMode = true)]
@@ -19,7 +14,6 @@ namespace StudentWebPortal.Model.Dto
 
         [Required]
         public Surahs? Surah { get; set; }
-
 
         [Required]
         [Range(1, int.MaxValue, ErrorMessage = "Verse start must be a positive integer")]
@@ -47,18 +41,8 @@ namespace StudentWebPortal.Model.Dto
         [Display(Name = "Notes")]
         public string? Notes { get; set; }
 
-
         [Required]
         public Teachers? RecordedBy { get; set; }
-
-        [Editable(false)]
-        [Display(Name = "Created At")]
-        public DateTime CreatedAt { get; set; }
-
-        [Editable(false)]
-        [Display(Name = "Updated At")]
-        public DateTime UpdatedAt { get; set; }
-
-        public byte[]? RowVersion { get; set; }
+        // CreatedAt / UpdatedAt / RowVersion are server-controlled and intentionally not part of the request.
     }
 }

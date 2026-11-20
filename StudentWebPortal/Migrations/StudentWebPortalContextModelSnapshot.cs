@@ -34,9 +34,7 @@ namespace StudentWebPortal.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasDefaultValueSql("now() AT TIME ZONE 'utc'");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Notes")
                         .HasMaxLength(250)
@@ -47,7 +45,6 @@ namespace StudentWebPortal.Migrations
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
-                        .ValueGeneratedNever()
                         .HasColumnType("bytea");
 
                     b.Property<string>("SessionStatus")
@@ -95,7 +92,6 @@ namespace StudentWebPortal.Migrations
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
-                        .ValueGeneratedNever()
                         .HasColumnType("bytea");
 
                     b.Property<DateTime>("SessionDate")
@@ -149,7 +145,6 @@ namespace StudentWebPortal.Migrations
 
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
-                        .ValueGeneratedNever()
                         .HasColumnType("bytea");
 
                     b.Property<DateTime>("SessionDate")

@@ -1,18 +1,16 @@
-﻿using StudentWebPortal.Model.Entity;
 using StudentWebPortal.Model.Entity.Enum;
 using System.ComponentModel.DataAnnotations;
-using System.ComponentModel.DataAnnotations.Schema;
 
 namespace StudentWebPortal.Model.Dto
 {
     public class AttendanceCreateDto
     {
-        
-        [Required]
+        [Range(1, int.MaxValue, ErrorMessage = "StudentId must be a positive integer.")]
         public int StudentId { get; set; }
 
-        [ForeignKey(nameof(StudentId))]
-        public Student? Student { get; set; }
+        /// <summary>Optional. Defaults to today (UTC). Cannot be in the future.</summary>
+        [DataType(DataType.Date)]
+        public DateTime? AttendanceDate { get; set; }
 
         [Required(ErrorMessage = "Attendance status is required.")]
         [EnumDataType(typeof(SessionStatus), ErrorMessage = "Invalid attendance status selected.")]
@@ -21,7 +19,7 @@ namespace StudentWebPortal.Model.Dto
 
         [MaxLength(250)]
         [DataType(DataType.MultilineText)]
-        [Display(Name = "Notes")]   
+        [Display(Name = "Notes")]
         public string? Notes { get; set; }
 
         [Required(ErrorMessage = "Attendance RecordedBy is required.")]

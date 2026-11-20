@@ -1,21 +1,32 @@
 @StudentWebPortal_HostAddress = https://localhost:7197
 @StudentId = 1
 @AttendanceId = 1
+@HifzId = 1
+@RevisionId = 1
 
 
-### List students (paging/search)
+### Health check (is the API up and can it reach PostgreSQL?)
+GET {{StudentWebPortal_HostAddress}}/health
+
+
+### List students (paging)
 GET {{StudentWebPortal_HostAddress}}/api/Students?page=1&pageSize=20
 Accept: application/json
 
 
-### Create student
+### Search students (case-insensitive: name, email or phone) + active filter
+GET {{StudentWebPortal_HostAddress}}/api/Students?search=ahmed&isActive=true
+Accept: application/json
+
+
+### Create student (email is lower-cased, phone is stored as +E.164)
 POST {{StudentWebPortal_HostAddress}}/api/Students
 Content-Type: application/json
 
 {
   "studentName": "Sample Student",
   "email": "sample.student@example.com",
-  "phoneNumber": "+919876543210",
+  "phoneNumber": "98765 43210",
   "enrollmentDate": "2026-11-19",
   "notes": "Created for API smoke testing"
 }
@@ -23,6 +34,11 @@ Content-Type: application/json
 
 ### Get student by ID
 GET {{StudentWebPortal_HostAddress}}/api/Students/{{StudentId}}
+Accept: application/json
+
+
+### Student progress summary (attendance rate + Hifz/revision activity)
+GET {{StudentWebPortal_HostAddress}}/api/Students/{{StudentId}}/summary
 Accept: application/json
 
 
@@ -35,26 +51,56 @@ Content-Type: application/json-patch+json
 ]
 
 
-### List attendance records for student
+### Attendance: list records for a student
 GET {{StudentWebPortal_HostAddress}}/api/Attendance/student/{{StudentId}}
 Accept: application/json
 
 
-### Get attendance by record ID
+### Attendance: get by record ID
 GET {{StudentWebPortal_HostAddress}}/api/Attendance/{{AttendanceId}}
 Accept: application/json
 
 
-### Filter Hifz sessions
+### Attendance: create (date defaults to today)
+POST {{StudentWebPortal_HostAddress}}/api/Attendance
+Content-Type: application/json
+
+{
+  "studentId": {{StudentId}},
+  "sessionStatus": 0,
+  "notes": "Sample attendance record",
+  "recordedBy": 0
+}
+
+
+### Attendance: back-dated record (future dates are rejected)
+POST {{StudentWebPortal_HostAddress}}/api/Attendance
+Content-Type: application/json
+
+{
+  "studentId": {{StudentId}},
+  "attendanceDate": "2026-11-18",
+  "sessionStatus": 2,
+  "notes": "Arrived late",
+  "recordedBy": 1
+}
+
+
+### Attendance: patch status (0 = Present, 1 = Absent, 2 = Late)
+PATCH {{StudentWebPortal_HostAddress}}/api/Attendance/{{AttendanceId}}
+Content-Type: application/json-patch+json
+
+[
+  { "op": "replace", "path": "/SessionStatus", "value": 2 }
+]
+
+
+### Hifz: filter sessions
 GET {{StudentWebPortal_HostAddress}}/api/HifzSession?studentId={{StudentId}}&fromDate=2026-01-01&toDate=2026-12-31
 Accept: application/json
 
 
-### Filter revision sessions
-GET {{StudentWebPortal_HostAddress}}/api/RevisionSession?studentId={{StudentId}}&fromDate=2026-01-01&toDate=2026-12-31
-Accept: application/json
-
-### Create Hifz session
+### Hifz: create (Al-Fatiha has 7 verses)
 POST {{StudentWebPortal_HostAddress}}/api/HifzSession
 Content-Type: application/json
 
@@ -71,7 +117,28 @@ Content-Type: application/json
 }
 
 
-### Create revision session
+### Hifz: invalid verse -> 400 ("Verse 8 does not exist in AlFatiha; it has 7 verses.")
+POST {{StudentWebPortal_HostAddress}}/api/HifzSession
+Content-Type: application/json
+
+{
+  "studentId": {{StudentId}},
+  "sessionDate": "2026-11-19",
+  "surah": 1,
+  "verseStart": 8,
+  "status": 0,
+  "rank": 0,
+  "durationMinutes": 20,
+  "recordedBy": 0
+}
+
+
+### Revision: filter sessions
+GET {{StudentWebPortal_HostAddress}}/api/RevisionSession?studentId={{StudentId}}&fromDate=2026-01-01&toDate=2026-12-31
+Accept: application/json
+
+
+### Revision: create
 POST {{StudentWebPortal_HostAddress}}/api/RevisionSession
 Content-Type: application/json
 
@@ -89,13 +156,18 @@ Content-Type: application/json
 }
 
 
-### Create attendance
-POST {{StudentWebPortal_HostAddress}}/api/Attendance
+### Revision: verseEnd past the end of the surah -> 400
+POST {{StudentWebPortal_HostAddress}}/api/RevisionSession
 Content-Type: application/json
 
 {
   "studentId": {{StudentId}},
-  "sessionStatus": 0,
-  "notes": "Sample attendance record",
+  "sessionDate": "2026-11-19",
+  "surah": 1,
+  "verseStart": 1,
+  "verseEnd": 8,
+  "status": 0,
+  "rank": 0,
+  "durationMinutes": 15,
   "recordedBy": 0
 }

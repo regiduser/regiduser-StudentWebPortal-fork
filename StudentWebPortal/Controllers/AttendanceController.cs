@@ -4,48 +4,52 @@ using Microsoft.EntityFrameworkCore;
 using StudentWebPortal.Data;
 using StudentWebPortal.Model.Dto;
 using StudentWebPortal.Model.Entity;
-using Npgsql;
 
 namespace StudentWebPortal.Controllers;
 
-[ApiController]
 [Route("api/[controller]")]
-public sealed class AttendanceController(StudentWebPortalContext context) : ControllerBase
+public sealed class AttendanceController(StudentWebPortalContext context) : ApiControllerBase
 {
+    private static readonly string[] PatchableFields = ["SessionStatus", "Notes", "RecordedBy"];
+    private const string ConcurrencyMessage = "This attendance record was changed by another request. Reload it and retry.";
+
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<Attendance>>> GetAllAttendances([FromQuery] int page = 1, [FromQuery] int pageSize = 50, CancellationToken cancellationToken = default)
+    [ProducesResponseType<IEnumerable<AttendanceDto>>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<IEnumerable<AttendanceDto>>> GetAllAttendances(
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 50, CancellationToken cancellationToken = default)
     {
-        if (!IsValidPaging(page, pageSize)) return BadRequest("Page must be between 1 and 1,000,000 and pageSize must be between 1 and 100.");
-        var query = context.Attendances.AsNoTracking();
-        await SetPagingHeadersAsync(query, page, pageSize, cancellationToken);
-        var records = await query.OrderByDescending(a => a.AttendanceDate).ThenByDescending(a => a.Id)
-            .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(cancellationToken);
-        return Ok(records);
+        if (ValidatePaging(page, pageSize) is { } invalidPaging) return invalidPaging;
+        return Ok(await ListAsync(context.Attendances.AsNoTracking(), page, pageSize, cancellationToken));
     }
 
     [HttpGet("student/{studentId:int}")]
-    public async Task<ActionResult<IEnumerable<Attendance>>> GetByStudentId(int studentId, [FromQuery] int page = 1, [FromQuery] int pageSize = 50, CancellationToken cancellationToken = default)
+    [ProducesResponseType<IEnumerable<AttendanceDto>>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<IEnumerable<AttendanceDto>>> GetByStudentId(
+        int studentId, [FromQuery] int page = 1, [FromQuery] int pageSize = 50, CancellationToken cancellationToken = default)
     {
-        if (!IsValidPaging(page, pageSize)) return BadRequest("Page must be between 1 and 1,000,000 and pageSize must be between 1 and 100.");
+        if (ValidatePaging(page, pageSize) is { } invalidPaging) return invalidPaging;
         var query = context.Attendances.AsNoTracking().Where(a => a.StudentId == studentId);
-        await SetPagingHeadersAsync(query, page, pageSize, cancellationToken);
-        var records = await query.OrderByDescending(a => a.AttendanceDate).ThenByDescending(a => a.Id)
-            .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(cancellationToken);
-        return Ok(records);
+        return Ok(await ListAsync(query, page, pageSize, cancellationToken));
     }
 
     [HttpGet("{id:int}")]
-    public async Task<ActionResult<Attendance>> GetById(int id, CancellationToken cancellationToken)
+    [ProducesResponseType<AttendanceDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<AttendanceDto>> GetById(int id, CancellationToken cancellationToken)
     {
-        var record = await context.Attendances.AsNoTracking().FirstOrDefaultAsync(a => a.Id == id, cancellationToken);
-        return record is null ? NotFound() : Ok(record);
+        var record = await context.Attendances.AsNoTracking().Include(a => a.Student)
+            .FirstOrDefaultAsync(a => a.Id == id, cancellationToken);
+        return record is null ? NotFound() : Ok(ToDto(record));
     }
 
+    /// <summary>Records attendance for a student. The date defaults to today (UTC); one record per student per day.</summary>
     [HttpPost]
-    public async Task<ActionResult<Attendance>> CreateAttendance([FromBody] AttendanceCreateDto dto, CancellationToken cancellationToken)
+    [ProducesResponseType<AttendanceDto>(StatusCodes.Status201Created)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<AttendanceDto>> CreateAttendance([FromBody] AttendanceCreateDto dto, CancellationToken cancellationToken)
     {
         if (!await context.Students.AnyAsync(s => s.StudentId == dto.StudentId, cancellationToken))
-            return BadRequest($"Student with Id {dto.StudentId} does not exist.");
+            return BadRequestProblem($"Student with Id {dto.StudentId} does not exist.");
 
         var attendance = new Attendance
         {
@@ -53,71 +57,106 @@ public sealed class AttendanceController(StudentWebPortalContext context) : Cont
             RecordedBy = dto.RecordedBy,
             SessionStatus = dto.SessionStatus,
             Notes = NormalizeOptional(dto.Notes),
-            AttendanceDate = DateTime.UtcNow.Date
+            AttendanceDate = StartOfDayUtc(dto.AttendanceDate ?? DateTime.UtcNow)
         };
         context.Attendances.Add(attendance);
         try
         {
             await context.SaveChangesAsync(cancellationToken);
         }
-        catch (DbUpdateException ex) when (ex.InnerException is PostgresException postgres && postgres.SqlState == PostgresErrorCodes.UniqueViolation)
+        catch (DbUpdateException ex) when (IsUniqueViolation(ex))
         {
-            return Conflict("An attendance record already exists for this student and date.");
+            return ConflictProblem("An attendance record already exists for this student and date.");
         }
-        return CreatedAtAction(nameof(GetById), new { id = attendance.Id }, attendance);
+
+        await context.Entry(attendance).Reference(a => a.Student).LoadAsync(cancellationToken);
+        return CreatedAtAction(nameof(GetById), new { id = attendance.Id }, ToDto(attendance));
     }
 
-
     [HttpPut("{id:int}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> UpdateAttendance(int id, [FromBody] UpdateAttendanceDto dto, CancellationToken cancellationToken)
     {
         var attendance = await context.Attendances.FirstOrDefaultAsync(a => a.Id == id, cancellationToken);
         if (attendance is null) return NotFound();
+
         attendance.SessionStatus = dto.SessionStatus;
         attendance.Notes = NormalizeOptional(dto.Notes);
         attendance.RecordedBy = dto.RecordedBy;
         try { await context.SaveChangesAsync(cancellationToken); }
-        catch (DbUpdateConcurrencyException) { return Conflict("This attendance record was changed by another request. Reload it and retry."); }
+        catch (DbUpdateConcurrencyException) { return ConflictProblem(ConcurrencyMessage); }
         return NoContent();
     }
 
-
+    /// <summary>RFC 6902 JSON Patch limited to SessionStatus, Notes and RecordedBy.</summary>
     [HttpPatch("{id:int}")]
-    public async Task<IActionResult> PatchAttendance(int id, [FromBody] JsonPatchDocument<Attendance> patchDoc, CancellationToken cancellationToken)
+    [ProducesResponseType<AttendanceDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<AttendanceDto>> PatchAttendance(int id, [FromBody] JsonPatchDocument<Attendance> patchDoc, CancellationToken cancellationToken)
     {
-        if (patchDoc is null) return BadRequest("A JSON Patch document is required.");
+        if (patchDoc is null) return BadRequestProblem("A JSON Patch document is required.");
         if (patchDoc.Operations.Any(op => !IsAllowedPatchPath(op.path) || (op.from is not null && !IsAllowedPatchPath(op.from))))
-            return BadRequest("PATCH only supports SessionStatus, Notes, and RecordedBy fields.");
-        var attendance = await context.Attendances.FirstOrDefaultAsync(a => a.Id == id, cancellationToken);
+            return BadRequestProblem("PATCH only supports SessionStatus, Notes, and RecordedBy fields.");
+
+        var attendance = await context.Attendances.Include(a => a.Student).FirstOrDefaultAsync(a => a.Id == id, cancellationToken);
         if (attendance is null) return NotFound();
+
         patchDoc.ApplyTo(attendance, ModelState);
         if (!ModelState.IsValid || !TryValidateModel(attendance)) return ValidationProblem(ModelState);
+
         attendance.Notes = NormalizeOptional(attendance.Notes);
         try { await context.SaveChangesAsync(cancellationToken); }
-        catch (DbUpdateConcurrencyException) { return Conflict("This attendance record was changed by another request. Reload it and retry."); }
-        return Ok(attendance);
+        catch (DbUpdateConcurrencyException) { return ConflictProblem(ConcurrencyMessage); }
+        return Ok(ToDto(attendance));
     }
 
-
     [HttpDelete("{id:int}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> DeleteAttendance(int id, CancellationToken cancellationToken)
     {
         var record = await context.Attendances.FirstOrDefaultAsync(a => a.Id == id, cancellationToken);
         if (record is null) return NotFound();
+
         context.Attendances.Remove(record);
         try { await context.SaveChangesAsync(cancellationToken); }
-        catch (DbUpdateConcurrencyException) { return Conflict("This attendance record was changed by another request. Reload it and retry."); }
+        catch (DbUpdateConcurrencyException) { return ConflictProblem(ConcurrencyMessage); }
         return NoContent();
     }
 
-
-    private static bool IsValidPaging(int page, int pageSize) => page is >= 1 and <= 1_000_000 && pageSize is >= 1 and <= 100;
-    private async Task SetPagingHeadersAsync(IQueryable<Attendance> query, int page, int pageSize, CancellationToken cancellationToken)
+    private async Task<List<AttendanceDto>> ListAsync(IQueryable<Attendance> query, int page, int pageSize, CancellationToken cancellationToken)
     {
-        Response.Headers["X-Total-Count"] = (await query.CountAsync(cancellationToken)).ToString();
-        Response.Headers["X-Page"] = page.ToString();
-        Response.Headers["X-Page-Size"] = pageSize.ToString();
+        SetPagingHeaders(await query.CountAsync(cancellationToken), page, pageSize);
+        var records = await query.Include(a => a.Student)
+            .OrderByDescending(a => a.AttendanceDate).ThenByDescending(a => a.Id)
+            .Skip((page - 1) * pageSize).Take(pageSize)
+            .ToListAsync(cancellationToken);
+        return records.Select(ToDto).ToList();
     }
-    private static string? NormalizeOptional(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
-    private static bool IsAllowedPatchPath(string path) => new[] { "SessionStatus", "Notes", "RecordedBy" }.Contains(path.TrimStart('/').Replace("~1", "/", StringComparison.Ordinal).Replace("~0", "~", StringComparison.Ordinal), StringComparer.OrdinalIgnoreCase);
+
+    private static AttendanceDto ToDto(Attendance a) => new()
+    {
+        Id = a.Id,
+        StudentId = a.StudentId,
+        StudentName = a.Student?.StudentName,
+        AttendanceDate = a.AttendanceDate,
+        SessionStatus = a.SessionStatus,
+        Notes = a.Notes,
+        RecordedBy = a.RecordedBy,
+        CreatedAt = a.CreatedAt,
+        UpdatedAt = a.UpdatedAt,
+        RowVersion = a.RowVersion
+    };
+
+    private static bool IsAllowedPatchPath(string path)
+    {
+        var field = path.TrimStart('/')
+            .Replace("~1", "/", StringComparison.Ordinal)
+            .Replace("~0", "~", StringComparison.Ordinal);
+        return PatchableFields.Contains(field, StringComparer.OrdinalIgnoreCase);
+    }
 }

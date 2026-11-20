@@ -7,34 +7,37 @@ using StudentWebPortal.Model.Entity.Enum;
 
 namespace StudentWebPortal.Controllers;
 
-[ApiController]
 [Route("api/[controller]")]
-public sealed class HifzSessionController(StudentWebPortalContext context) : ControllerBase
+public sealed class HifzSessionController(StudentWebPortalContext context) : ApiControllerBase
 {
+    private const string ConcurrencyMessage = "This session was changed by another request. Reload the record and retry.";
+
+    /// <summary>Lists Hifz (memorisation) sessions, newest first. fromDate/toDate are inclusive calendar days.</summary>
     [HttpGet]
+    [ProducesResponseType<IEnumerable<HifzSessionDto>>(StatusCodes.Status200OK)]
     public async Task<ActionResult<IEnumerable<HifzSessionDto>>> GetAll(
         [FromQuery] int? studentId, [FromQuery] SessionStatus? status,
         [FromQuery] DateTime? fromDate, [FromQuery] DateTime? toDate,
         [FromQuery] int page = 1, [FromQuery] int pageSize = 50, CancellationToken cancellationToken = default)
     {
-        if (page is < 1 or > 1_000_000 || pageSize is < 1 or > 100)
-            return BadRequest("Page must be between 1 and 1,000,000 and pageSize must be between 1 and 100.");
-        if (fromDate.HasValue && toDate.HasValue && fromDate.Value.Date > toDate.Value.Date)
-            return BadRequest("fromDate must be on or before toDate.");
+        if (ValidatePaging(page, pageSize) is { } invalidPaging) return invalidPaging;
+        if (ValidateDateRange(fromDate, toDate) is { } invalidRange) return invalidRange;
+
         var query = context.HifzSessions.AsNoTracking().Include(s => s.Student).AsQueryable();
         if (studentId.HasValue) query = query.Where(s => s.StudentId == studentId.Value);
         if (status.HasValue) query = query.Where(s => s.Status == status.Value);
-        if (fromDate.HasValue) query = query.Where(s => s.SessionDate >= DateTime.SpecifyKind(fromDate.Value.Date, DateTimeKind.Utc));
-        if (toDate.HasValue) query = query.Where(s => s.SessionDate < DateTime.SpecifyKind(toDate.Value.Date.AddDays(1), DateTimeKind.Utc));
-        Response.Headers["X-Total-Count"] = (await query.CountAsync(cancellationToken)).ToString();
-        Response.Headers["X-Page"] = page.ToString();
-        Response.Headers["X-Page-Size"] = pageSize.ToString();
+        if (fromDate.HasValue) { var from = StartOfDayUtc(fromDate.Value); query = query.Where(s => s.SessionDate >= from); }
+        if (toDate.HasValue) { var to = StartOfNextDayUtc(toDate.Value); query = query.Where(s => s.SessionDate < to); }
+
+        SetPagingHeaders(await query.CountAsync(cancellationToken), page, pageSize);
         var records = await query.OrderByDescending(s => s.SessionDate).ThenByDescending(s => s.Id)
             .Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(cancellationToken);
         return Ok(records.Select(ToDto));
     }
 
     [HttpGet("{id:int}")]
+    [ProducesResponseType<HifzSessionDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<HifzSessionDto>> GetById(int id, CancellationToken cancellationToken)
     {
         var session = await context.HifzSessions.AsNoTracking().Include(s => s.Student)
@@ -43,14 +46,16 @@ public sealed class HifzSessionController(StudentWebPortalContext context) : Con
     }
 
     [HttpPost]
+    [ProducesResponseType<HifzSessionDto>(StatusCodes.Status201Created)]
     public async Task<ActionResult<HifzSessionDto>> Create([FromBody] HifzSessionCreateDto dto, CancellationToken cancellationToken)
     {
         if (!await context.Students.AnyAsync(s => s.StudentId == dto.StudentId, cancellationToken))
-            return BadRequest($"Student with Id {dto.StudentId} does not exist.");
+            return BadRequestProblem($"Student with Id {dto.StudentId} does not exist.");
+
         var session = new HifzSession
         {
             StudentId = dto.StudentId,
-            SessionDate = DateTime.SpecifyKind(dto.SessionDate.Date, DateTimeKind.Utc),
+            SessionDate = StartOfDayUtc(dto.SessionDate),
             Surah = dto.Surah,
             VerseStart = dto.VerseStart,
             Status = dto.Status,
@@ -66,12 +71,16 @@ public sealed class HifzSessionController(StudentWebPortalContext context) : Con
     }
 
     [HttpPut("{id:int}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Update(int id, [FromBody] HifzSessionUpdateDto dto, CancellationToken cancellationToken)
     {
         var session = await context.HifzSessions.FirstOrDefaultAsync(s => s.Id == id, cancellationToken);
         if (session is null) return NotFound();
+
         if (dto.RowVersion is not null) context.Entry(session).Property(s => s.RowVersion).OriginalValue = dto.RowVersion;
-        session.SessionDate = DateTime.SpecifyKind(dto.SessionDate.Date, DateTimeKind.Utc);
+        session.SessionDate = StartOfDayUtc(dto.SessionDate);
         session.Surah = dto.Surah;
         session.VerseStart = dto.VerseStart;
         session.Status = dto.Status;
@@ -83,12 +92,14 @@ public sealed class HifzSessionController(StudentWebPortalContext context) : Con
         catch (DbUpdateConcurrencyException)
         {
             if (!await context.HifzSessions.AnyAsync(s => s.Id == id, cancellationToken)) return NotFound();
-            return Conflict("This session was changed by another request. Reload the record and retry.");
+            return ConflictProblem(ConcurrencyMessage);
         }
         return NoContent();
     }
 
     [HttpDelete("{id:int}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         var session = await context.HifzSessions.FirstOrDefaultAsync(s => s.Id == id, cancellationToken);
@@ -106,6 +117,4 @@ public sealed class HifzSessionController(StudentWebPortalContext context) : Con
         Notes = s.Notes, RecordedBy = s.RecordedBy, CreatedAt = s.CreatedAt,
         UpdatedAt = s.UpdatedAt, RowVersion = s.RowVersion
     };
-
-    private static string? NormalizeOptional(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

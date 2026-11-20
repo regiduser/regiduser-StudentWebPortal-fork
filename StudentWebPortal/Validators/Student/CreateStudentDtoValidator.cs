@@ -1,4 +1,3 @@
-﻿
 using FluentValidation;
 using StudentWebPortal.Model.Dto;
 using StudentWebPortal.Validators.Common;

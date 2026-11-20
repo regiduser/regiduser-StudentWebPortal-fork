@@ -1,17 +1,12 @@
-﻿using StudentWebPortal.Model.Entity;
 using StudentWebPortal.Model.Entity.Enum;
 using System.ComponentModel.DataAnnotations;
-using System.ComponentModel.DataAnnotations.Schema;
 
 namespace StudentWebPortal.Model.Dto
 {
     public class RevisionSessionUpdateDto
     {
-        [Required]
+        [Range(1, int.MaxValue, ErrorMessage = "StudentId must be a positive integer.")]
         public int StudentId { get; set; }
-
-        [ForeignKey(nameof(StudentId))]
-        public Student? Student { get; set; }
 
         [DataType(DataType.Date)]
         [DisplayFormat(DataFormatString = "{0:yyyy-MM-dd}", ApplyFormatInEditMode = true)]
@@ -19,7 +14,6 @@ namespace StudentWebPortal.Model.Dto
 
         [Required]
         public Surahs? Surah { get; set; }
-
 
         [Required]
         [Range(1, int.MaxValue, ErrorMessage = "Verse start must be a positive integer")]
@@ -47,10 +41,10 @@ namespace StudentWebPortal.Model.Dto
         [Display(Name = "Notes")]
         public string? Notes { get; set; }
 
-
         [Required]
         public Teachers? RecordedBy { get; set; }
 
+        /// <summary>Optional optimistic-concurrency token from a previous GET; a mismatch returns 409.</summary>
         public byte[]? RowVersion { get; set; }
     }
 }
